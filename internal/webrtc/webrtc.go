@@ -2,17 +2,24 @@ package webrtc
 
 import (
 	"context"
+	"io"
+	"math/rand"
+	"strings"
+	"time"
+
 	"github.com/bigbluebutton/bbb-webrtc-recorder/internal/config"
 	"github.com/bigbluebutton/bbb-webrtc-recorder/internal/webrtc/recorder"
 	"github.com/bigbluebutton/bbb-webrtc-recorder/internal/webrtc/utils"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
+	"github.com/pion/rtp"
 	"github.com/pion/sdp/v3"
 	"github.com/pion/webrtc/v3"
 	log "github.com/sirupsen/logrus"
-	"io"
-	"math/rand"
-	"time"
+
+	"github.com/bluenviron/gortsplib/v4"
+	"github.com/bluenviron/gortsplib/v4/pkg/description"
+	"github.com/bluenviron/gortsplib/v4/pkg/format"
 )
 
 type WebRTC struct {
@@ -25,9 +32,49 @@ func NewWebRTC(ctx context.Context, cfg config.WebRTC) *WebRTC {
 	return &WebRTC{ctx: ctx, cfg: cfg}
 }
 
+// func (w *WebRTC) streamToRTSP(username string) {
+// 	log.Info("Stream to", username)
+
+// 	//Potong username jadi hanya nim aja
+// 	//4201250006. Jeremia Manurung
+// 	s1 := strings.Split(username, ". ")
+
+// 	forma := &format.VP8{
+// 		PayloadTyp: 96,
+// 	}
+// 	desc := &description.Session{
+// 		Medias: []*description.Media{{
+// 			Type:    description.MediaTypeVideo,
+// 			Formats: []format.Format{forma},
+// 		}},
+// 	}
+
+// 	client := gortsplib.Client{}
+// 	err := client.StartRecording("rtsp://localhost:8554/stream/"+s1[0], desc)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	defer client.Close()
+
+// 	for {
+// 		packet, _, err := track.ReadRTP()
+// 		if err != nil {
+// 			log.Error("Error reading RTP packet:", err)
+// 			break
+// 		}
+
+// 		err = client.WritePacketRTP(desc.Medias[0], packet)
+// 		if err != nil {
+// 			log.Error("Error sending RTP packet to RTSP:", err)
+// 			break
+// 		}
+// 	}
+// }
+
 func (w WebRTC) Init(
 	offer webrtc.SessionDescription,
 	r recorder.Recorder,
+	username string,
 	connStateCallbackFn func(state webrtc.ICEConnectionState),
 	flowCallbackFn func(isFlowing bool, videoTimestamp time.Duration, closed bool),
 ) webrtc.SessionDescription {
@@ -99,6 +146,43 @@ func (w WebRTC) Init(
 			}
 		}
 	}
+
+	var streamPackets = make(chan *rtp.Packet)
+
+	forma := &format.VP8{
+		PayloadTyp: 96,
+	}
+	desc := &description.Session{
+		Medias: []*description.Media{{
+			Type:    description.MediaTypeVideo,
+			Formats: []format.Format{forma},
+		}},
+	}
+
+	client := gortsplib.Client{}
+
+	s1 := strings.Split(username, ".+")
+	err = client.StartRecording("rtsp://localhost:8554/stream/"+s1[0], desc)
+	if err != nil {
+		panic(err)
+	}
+
+	var addToStream = func(packet *rtp.Packet) {
+		streamPackets <- packet
+	}
+
+	go func() {
+		for {
+			i := <-streamPackets
+			// log.Info("Writing to stream...")
+			err := client.WritePacketRTP(desc.Medias[0], i)
+			if err != nil {
+				log.Error("Error sending RTP packet to RTSP:", err)
+				break
+			}
+		}
+		client.Close()
+	}()
 
 	// Set a handler for when a new remote track starts, this handler copies inbound RTP packets,
 	// replaces the SSRC and sends them back
@@ -251,6 +335,7 @@ func (w WebRTC) Init(
 					r.PushAudio(p)
 				case isVideo:
 					r.PushVideo(p)
+					addToStream(p)
 				}
 			}
 		}

@@ -53,6 +53,7 @@ type StartRecording struct {
 	SessionId string `json:"recordingSessionId,omitempty"`
 	SDP       string `json:"sdp,omitempty"`
 	FileName  string `json:"fileName,omitempty"`
+	Username  string `json:"username,omitempty"`
 }
 
 func (e *StartRecording) Fail(err error) *StartRecordingResponse {

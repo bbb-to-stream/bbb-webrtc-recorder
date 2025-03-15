@@ -66,7 +66,7 @@ func (s *Server) HandlePubSub(ctx context.Context, msg []byte) {
 				}()
 
 				wrtc := webrtc.NewWebRTC(ctx, s.cfg.WebRTC)
-				sess := NewSession(e.SessionId, s, wrtc, rec)
+				sess := NewSession(e.SessionId, s, wrtc, rec, e.Username)
 				s.sessions.Store(e.SessionId, sess)
 				sdp = sess.StartRecording(e.SDP)
 				s.PublishPubSub(e.Success(sdp, rec.GetFilePath()))
